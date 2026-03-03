@@ -1,0 +1,9 @@
+.git
+.gitignore
+node_modules
+dist
+.astro
+npm-debug.log*
+Dockerfile*
+docker-compose*.yml
+README.md
