@@ -1,0 +1,65 @@
+:root {
+  --bg: #f5f2e9;
+  --panel: #fffdf7;
+  --ink: #1f1d18;
+  --accent: #8d3f2b;
+  --line: #d8d1c3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 20% 20%, #fff8e5, transparent 50%),
+    radial-gradient(circle at 80% 10%, #efe6d5, transparent 40%),
+    var(--bg);
+}
+
+a {
+  color: var(--accent);
+}
+
+.shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(30, 24, 12, 0.08);
+}
+
+input,
+button,
+select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  background: #fffaf0;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+input,
+select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fffcf5;
+}

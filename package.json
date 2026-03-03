@@ -1,0 +1,30 @@
+{
+  "name": "auvtt",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1 --port 5173",
+    "build": "astro build",
+    "preview": "astro preview --host 127.0.0.1 --port 5173",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.1.0",
+    "@astrojs/react": "^4.4.0",
+    "astro": "^5.1.0",
+    "better-sqlite3": "^11.7.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,12 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { VttBoard } from '@/components/VttBoard';
+import { ensureWsHub } from '@/lib/wsHub';
+
+const { sessionId } = Astro.params;
+ensureWsHub();
+---
+
+<BaseLayout title={`DM Board ${sessionId}`}>
+  <VttBoard client:load sessionId={sessionId!} mode="dm" />
+</BaseLayout>
