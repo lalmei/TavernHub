@@ -20,4 +20,15 @@ describe('ws protocol parser', () => {
       })
     ).toThrow();
   });
+
+  it('parses set_portal_state messages', () => {
+    const payload = parseClientMessage({
+      type: 'set_portal_state',
+      payload: { sessionId: 's1', portalId: 'portal_1', closed: true }
+    });
+
+    expect(payload.type).toBe('set_portal_state');
+    expect(payload.payload.portalId).toBe('portal_1');
+    expect(payload.payload.closed).toBe(true);
+  });
 });

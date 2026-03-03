@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SceneSettings, SessionSnapshot, TokenRecord, TokenRole, WsServerEvent } from '@/lib/types';
-import { playerVisionCircles } from '@/lib/visibility';
+import type { Point, PortalRecord, SceneSettings, SessionSnapshot, TokenRecord, TokenRole, WsServerEvent } from '@/lib/types';
+import {
+  hitTestPortal,
+  playerVisionCircles,
+  pointInPolygon,
+  segmentsFromClosedPortals,
+  segmentsFromPolylines,
+  visibilityPolygonForToken
+} from '@/lib/visibility';
 
 interface Props {
   sessionId: string;
@@ -30,17 +37,40 @@ export function VttBoard({ sessionId, mode }: Props) {
   const mapImageRef = useRef<HTMLImageElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const dragTokenRef = useRef<string | null>(null);
+  const dragStartRef = useRef<Point | null>(null);
+  const didDragRef = useRef(false);
+  const visibilityCacheRef = useRef<Map<string, Point[]>>(new Map());
 
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('connecting');
   const [uvttImageFile, setUvttImageFile] = useState<File | null>(null);
+  const [showDoorOverlays, setShowDoorOverlays] = useState(true);
+  const [hoveredPortalId, setHoveredPortalId] = useState<string | null>(null);
 
   const selectedToken = useMemo(
     () => snapshot?.tokens.find((token) => token.id === selectedId) ?? null,
     [snapshot, selectedId]
   );
+  const portals = useMemo<PortalRecord[]>(() => snapshot?.geometry.portals ?? [], [snapshot]);
+  const wallSegments = useMemo(() => segmentsFromPolylines(snapshot?.geometry.lineOfSight ?? []), [snapshot]);
+  const closedPortalSegments = useMemo(() => segmentsFromClosedPortals(portals), [portals]);
+  const blockingSegments = useMemo(() => [...wallSegments, ...closedPortalSegments], [wallSegments, closedPortalSegments]);
+  const doorCounts = useMemo(
+    () => ({
+      closed: portals.filter((portal) => portal.closed).length,
+      open: portals.filter((portal) => !portal.closed).length
+    }),
+    [portals]
+  );
+  const geometryRevision = useMemo(() => {
+    if (!snapshot) return 'none';
+    return JSON.stringify({
+      lineOfSight: snapshot.geometry.lineOfSight,
+      portals: portals.map((portal) => [portal.id, portal.a.x, portal.a.y, portal.b.x, portal.b.y, portal.closed])
+    });
+  }, [snapshot, portals]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +140,9 @@ export function VttBoard({ sessionId, mode }: Props) {
         if (msg.type === 'scene_updated') {
           return { ...current, scene: msg.payload };
         }
+        if (msg.type === 'geometry_updated') {
+          return { ...current, geometry: msg.payload };
+        }
         if (msg.type === 'error') {
           setError(msg.payload.message);
           return current;
@@ -124,6 +157,10 @@ export function VttBoard({ sessionId, mode }: Props) {
       wsRef.current = null;
     };
   }, [sessionId, mode]);
+
+  useEffect(() => {
+    visibilityCacheRef.current.clear();
+  }, [geometryRevision, snapshot?.map?.width, snapshot?.map?.height]);
 
   useEffect(() => {
     const map = snapshot?.map;
@@ -191,6 +228,14 @@ export function VttBoard({ sessionId, mode }: Props) {
     };
   }
 
+  function doorHitThreshold(event: React.MouseEvent<HTMLCanvasElement, MouseEvent>): number {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mapW = snapshot?.map?.width ?? canvasW;
+    const mapH = snapshot?.map?.height ?? canvasH;
+    const scale = (mapW / rect.width + mapH / rect.height) / 2;
+    return 10 * scale;
+  }
+
   function hitToken(x: number, y: number): TokenRecord | null {
     if (!snapshot) return null;
     for (let i = snapshot.tokens.length - 1; i >= 0; i -= 1) {
@@ -206,6 +251,8 @@ export function VttBoard({ sessionId, mode }: Props) {
 
   function onMouseDown(event: React.MouseEvent<HTMLCanvasElement, MouseEvent>) {
     const pt = canvasPoint(event);
+    dragStartRef.current = pt;
+    didDragRef.current = false;
     const token = hitToken(pt.x, pt.y);
     setSelectedId(token?.id ?? null);
     if (isDm && token) {
@@ -214,13 +261,54 @@ export function VttBoard({ sessionId, mode }: Props) {
   }
 
   function onMouseMove(event: React.MouseEvent<HTMLCanvasElement, MouseEvent>) {
-    if (!isDm || !dragTokenRef.current) return;
     const pt = canvasPoint(event);
-    send({ type: 'move_token', payload: { sessionId, id: dragTokenRef.current, x: pt.x, y: pt.y } });
+    const start = dragStartRef.current;
+    if (start) {
+      const dx = pt.x - start.x;
+      const dy = pt.y - start.y;
+      if (dx * dx + dy * dy > 9) didDragRef.current = true;
+    }
+
+    if (!isDm) return;
+    if (dragTokenRef.current) {
+      send({ type: 'move_token', payload: { sessionId, id: dragTokenRef.current, x: pt.x, y: pt.y } });
+      return;
+    }
+
+    if (!showDoorOverlays || portals.length === 0) {
+      if (hoveredPortalId !== null) setHoveredPortalId(null);
+      return;
+    }
+    const hovered = hitTestPortal(pt, portals, doorHitThreshold(event));
+    if (hovered !== hoveredPortalId) {
+      setHoveredPortalId(hovered);
+    }
   }
 
-  function onMouseUp() {
+  function onMouseUp(event: React.MouseEvent<HTMLCanvasElement, MouseEvent>) {
+    const pt = canvasPoint(event);
+    if (isDm && !dragTokenRef.current && !didDragRef.current && showDoorOverlays && portals.length > 0) {
+      const portalId = hitTestPortal(pt, portals, doorHitThreshold(event));
+      if (portalId) {
+        const portal = portals.find((entry) => entry.id === portalId);
+        if (portal) {
+          send({
+            type: 'set_portal_state',
+            payload: { sessionId, portalId, closed: !portal.closed }
+          });
+        }
+      }
+    }
     dragTokenRef.current = null;
+    dragStartRef.current = null;
+    didDragRef.current = false;
+  }
+
+  function onMouseLeave() {
+    dragTokenRef.current = null;
+    dragStartRef.current = null;
+    didDragRef.current = false;
+    setHoveredPortalId(null);
   }
 
   function draw() {
@@ -239,28 +327,42 @@ export function VttBoard({ sessionId, mode }: Props) {
 
     const img = mapImageRef.current;
     const shouldMask = !isDm && snapshot.scene.fogEnabled && !snapshot.scene.globalLight;
+    const circles = playerVisionCircles(snapshot.tokens);
+    const visionPolygons = circles.map((circle) => {
+      const key = `${geometryRevision}|${mapW}|${mapH}|${circle.x.toFixed(2)}|${circle.y.toFixed(2)}|${circle.radius.toFixed(2)}`;
+      const cached = visibilityCacheRef.current.get(key);
+      if (cached) return cached;
+      const polygon = visibilityPolygonForToken({ x: circle.x, y: circle.y }, circle.radius, blockingSegments, mapW, mapH);
+      visibilityCacheRef.current.set(key, polygon);
+      return polygon;
+    });
+
     if (shouldMask) {
       ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.fillRect(0, 0, mapW, mapH);
 
-      const circles = playerVisionCircles(snapshot.tokens);
       if (circles.length > 0) {
-        ctx.save();
-        ctx.beginPath();
-        for (const circle of circles) {
-          ctx.moveTo(circle.x + circle.radius, circle.y);
-          ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+        for (const polygon of visionPolygons) {
+          if (polygon.length < 3) continue;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(polygon[0].x, polygon[0].y);
+          for (let i = 1; i < polygon.length; i += 1) {
+            ctx.lineTo(polygon[i].x, polygon[i].y);
+          }
+          ctx.closePath();
+          ctx.clip();
+          if (img) {
+            ctx.drawImage(img, 0, 0, mapW, mapH);
+          } else {
+            ctx.fillStyle = '#e9dfcf';
+            ctx.fillRect(0, 0, mapW, mapH);
+            ctx.fillStyle = '#6e5b44';
+            ctx.fillText('Upload a map to begin', 20, 30);
+          }
+          ctx.restore();
         }
-        ctx.clip();
-        if (img) {
-          ctx.drawImage(img, 0, 0, mapW, mapH);
-        } else {
-          ctx.fillStyle = '#e9dfcf';
-          ctx.fillRect(0, 0, mapW, mapH);
-          ctx.fillStyle = '#6e5b44';
-          ctx.fillText('Upload a map to begin', 20, 30);
-        }
-        ctx.restore();
       }
     } else if (img) {
       ctx.drawImage(img, 0, 0, mapW, mapH);
@@ -274,6 +376,10 @@ export function VttBoard({ sessionId, mode }: Props) {
     for (const token of snapshot.tokens) {
       if (!isDm && !token.visible) continue;
       if (!isDm && token.role === 'dm_marker') continue;
+      if (!isDm && token.role === 'npc') {
+        const visibleByLos = visionPolygons.some((poly) => pointInPolygon({ x: token.x, y: token.y }, poly));
+        if (!visibleByLos) continue;
+      }
 
       ctx.beginPath();
       ctx.arc(token.x, token.y, token.size / 2, 0, Math.PI * 2);
@@ -296,11 +402,27 @@ export function VttBoard({ sessionId, mode }: Props) {
         ctx.stroke();
       }
     }
+
+    if (isDm && showDoorOverlays && portals.length > 0) {
+      for (const portal of portals) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(portal.a.x, portal.a.y);
+        ctx.lineTo(portal.b.x, portal.b.y);
+        ctx.lineWidth = portal.id === hoveredPortalId ? 5 : 3;
+        ctx.strokeStyle = portal.closed ? '#da5d2a' : '#2a9d6c';
+        if (!portal.closed) {
+          ctx.setLineDash([8, 6]);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
   }
 
   useEffect(() => {
     draw();
-  }, [snapshot, selectedId]);
+  }, [snapshot, selectedId, hoveredPortalId, showDoorOverlays, geometryRevision, blockingSegments]);
 
   async function uploadMap(file: File, width: number, height: number, gridSize: number | null) {
     const data = new FormData();
@@ -365,8 +487,25 @@ export function VttBoard({ sessionId, mode }: Props) {
     }
   }
 
-  function copyPlayerUrl() {
-    navigator.clipboard.writeText(`${location.origin}/view/${sessionId}`).catch(() => undefined);
+  async function copyPlayerUrl() {
+    let host = location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+      try {
+        const response = await fetch('/api/network');
+        if (response.ok) {
+          const payload = (await response.json()) as { lanIp?: string | null };
+          if (payload.lanIp) {
+            host = payload.lanIp;
+          }
+        }
+      } catch {
+        // Fall back to current host when LAN IP discovery fails.
+      }
+    }
+
+    const port = location.port ? `:${location.port}` : '';
+    const url = `${location.protocol}//${host}${port}/view/${sessionId}`;
+    navigator.clipboard.writeText(url).catch(() => undefined);
   }
 
   if (!snapshot) {
@@ -386,7 +525,7 @@ export function VttBoard({ sessionId, mode }: Props) {
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
+            onMouseLeave={onMouseLeave}
             style={{ width: '100%', maxWidth: 1000, display: 'block', borderRadius: 8 }}
           />
         </section>
@@ -467,6 +606,15 @@ export function VttBoard({ sessionId, mode }: Props) {
               />{' '}
               Global light
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={showDoorOverlays}
+                onChange={(e) => setShowDoorOverlays(e.target.checked)}
+              />{' '}
+              Show door overlays
+            </label>
+            <div>Doors: {doorCounts.closed} closed / {doorCounts.open} open</div>
 
             {selectedToken && (
               <div style={{ borderTop: '1px solid #e4dccb', paddingTop: 8, display: 'grid', gap: 8 }}>

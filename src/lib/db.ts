@@ -1,8 +1,19 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import type { MapRecord, SceneSettings, SessionRecord, SessionSnapshot, TokenRecord, UniversalVttFile } from '@/lib/types';
+import type {
+  MapRecord,
+  Point,
+  PortalRecord,
+  SceneGeometry,
+  SceneSettings,
+  SessionRecord,
+  SessionSnapshot,
+  TokenRecord,
+  UniversalVttFile
+} from '@/lib/types';
 import { randomId } from '@/lib/id';
+import { normalizePortals } from '@/lib/visibility';
 
 const dbPath = resolve(process.cwd(), 'data', 'auvtt.db');
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -92,6 +103,14 @@ function migrate(): void {
       FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS scene_geometry (
+      session_id TEXT PRIMARY KEY,
+      line_of_sight_json TEXT NOT NULL,
+      portals_json TEXT NOT NULL,
+      lights_json TEXT NOT NULL,
+      FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_tokens_session_id ON tokens(session_id);
   `);
 }
@@ -143,11 +162,32 @@ function mapRowToScene(row: any): SceneSettings {
   };
 }
 
+function safeJsonParse<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function mapRowToGeometry(row: any): SceneGeometry {
+  const rawPortals = safeJsonParse<Array<Record<string, unknown>>>(row.portals_json, []);
+  return {
+    sessionId: row.session_id,
+    lineOfSight: safeJsonParse<Point[][]>(row.line_of_sight_json, []),
+    portals: normalizePortals(rawPortals),
+    lights: safeJsonParse<Array<Record<string, unknown>>>(row.lights_json, [])
+  };
+}
+
 export function createSession(name: string): SessionRecord {
   const id = randomId('s_');
   const at = nowIso();
   db.prepare('INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(id, name, at, at);
   db.prepare('INSERT INTO scene_settings (session_id, fog_enabled, global_light) VALUES (?, ?, ?)').run(id, 1, 0);
+  db.prepare(
+    'INSERT INTO scene_geometry (session_id, line_of_sight_json, portals_json, lights_json) VALUES (?, ?, ?, ?)'
+  ).run(id, '[]', '[]', '[]');
   const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
   return mapRowToSession(row);
 }
@@ -200,6 +240,52 @@ export function getScene(sessionId: string): SceneSettings {
     return upsertScene({ sessionId, fogEnabled: true, globalLight: false });
   }
   return mapRowToScene(row);
+}
+
+export function upsertSceneGeometry(geometry: SceneGeometry): SceneGeometry {
+  db.prepare(
+    `INSERT INTO scene_geometry (session_id, line_of_sight_json, portals_json, lights_json)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       line_of_sight_json = excluded.line_of_sight_json,
+       portals_json = excluded.portals_json,
+       lights_json = excluded.lights_json`
+  ).run(
+    geometry.sessionId,
+    JSON.stringify(geometry.lineOfSight),
+    JSON.stringify(geometry.portals.map((portal) => ({ id: portal.id, a: portal.a, b: portal.b, closed: portal.closed }))),
+    JSON.stringify(geometry.lights)
+  );
+  updateSessionTimestamp(geometry.sessionId);
+  const row = db.prepare('SELECT * FROM scene_geometry WHERE session_id = ?').get(geometry.sessionId);
+  return mapRowToGeometry(row);
+}
+
+export function getSceneGeometry(sessionId: string): SceneGeometry {
+  const row = db.prepare('SELECT * FROM scene_geometry WHERE session_id = ?').get(sessionId);
+  if (!row) {
+    return upsertSceneGeometry({
+      sessionId,
+      lineOfSight: [],
+      portals: [],
+      lights: []
+    });
+  }
+  return mapRowToGeometry(row);
+}
+
+export function setPortalState(sessionId: string, portalId: string, closed: boolean): SceneGeometry | null {
+  const geometry = getSceneGeometry(sessionId);
+  const updatedPortals: PortalRecord[] = geometry.portals.map((portal) =>
+    portal.id === portalId ? { ...portal, closed } : portal
+  );
+  if (!updatedPortals.some((portal) => portal.id === portalId)) {
+    return null;
+  }
+  return upsertSceneGeometry({
+    ...geometry,
+    portals: updatedPortals
+  });
 }
 
 export function addToken(token: TokenRecord): TokenRecord {
@@ -265,6 +351,7 @@ export function getSnapshot(sessionId: string): SessionSnapshot | null {
     session,
     map: getMap(sessionId),
     scene: getScene(sessionId),
+    geometry: getSceneGeometry(sessionId),
     tokens: getTokens(sessionId)
   };
 }
@@ -278,6 +365,14 @@ export function importUniversalVtt(sessionId: string, file: UniversalVttFile): S
   const mapHeight = Math.round(usesGridUnits ? rawMapHeight * ppg : rawMapHeight);
   const gridSize = Math.round(ppg);
   const ext = file.extensions?.auvtt;
+  const scale = usesGridUnits ? ppg : 1;
+  const lineOfSight = (file.line_of_sight ?? []).map((polyline) =>
+    polyline.map((pt) => ({
+      x: pt.x * scale,
+      y: pt.y * scale
+    }))
+  );
+  const portals = normalizePortals((file.portals ?? []) as Array<Record<string, unknown>>, scale);
 
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM tokens WHERE session_id = ?').run(sessionId);
@@ -295,6 +390,13 @@ export function importUniversalVtt(sessionId: string, file: UniversalVttFile): S
       sessionId,
       fogEnabled: ext?.scene?.fogEnabled ?? true,
       globalLight: ext?.scene?.globalLight ?? false
+    });
+
+    upsertSceneGeometry({
+      sessionId,
+      lineOfSight,
+      portals,
+      lights: (file.lights ?? []) as Array<Record<string, unknown>>
     });
 
     for (const t of ext?.tokens ?? []) {
@@ -319,20 +421,32 @@ export function importUniversalVtt(sessionId: string, file: UniversalVttFile): S
 export function exportUniversalVtt(sessionId: string): UniversalVttFile | null {
   const snapshot = getSnapshot(sessionId);
   if (!snapshot) return null;
+  const ppg = snapshot.map?.gridSize ?? 70;
   return {
     format: 0.3,
     resolution: {
       map_origin: { x: 0, y: 0 },
       map_size: {
-        x: snapshot.map?.width ?? 1200,
-        y: snapshot.map?.height ?? 800
+        x: Math.round((snapshot.map?.width ?? 1200) / ppg),
+        y: Math.round((snapshot.map?.height ?? 800) / ppg)
       },
-      pixels_per_grid: snapshot.map?.gridSize ?? 70
+      pixels_per_grid: ppg
     },
     image: snapshot.map?.imageUrl,
-    line_of_sight: [],
-    portals: [],
-    lights: [],
+    line_of_sight: snapshot.geometry.lineOfSight.map((polyline) =>
+      polyline.map((pt) => ({
+        x: pt.x / ppg,
+        y: pt.y / ppg
+      }))
+    ),
+    portals: snapshot.geometry.portals.map((portal) => ({
+      bounds: [
+        { x: portal.a.x / ppg, y: portal.a.y / ppg },
+        { x: portal.b.x / ppg, y: portal.b.y / ppg }
+      ],
+      closed: portal.closed
+    })),
+    lights: snapshot.geometry.lights as UniversalVttFile['lights'],
     extensions: {
       auvtt: {
         scene: {

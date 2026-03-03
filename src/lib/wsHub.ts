@@ -1,5 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import { addToken, deleteToken, getSnapshot, moveToken, updateToken, upsertScene } from '@/lib/db';
+import { addToken, deleteToken, getSnapshot, moveToken, setPortalState, updateToken, upsertScene } from '@/lib/db';
 import { parseClientMessage } from '@/lib/wsProtocol';
 import type { SceneSettings, TokenRecord, WsServerEvent } from '@/lib/types';
 
@@ -74,6 +74,16 @@ function handleMessage(ws: SocketWithSession, raw: string): void {
       broadcast(sessionId, { type: 'scene_updated', payload: scene });
       return;
     }
+
+    if (incoming.type === 'set_portal_state') {
+      const geometry = setPortalState(sessionId, incoming.payload.portalId, incoming.payload.closed);
+      if (!geometry) {
+        send(ws, { type: 'error', payload: { message: 'Portal not found' } });
+        return;
+      }
+      broadcast(sessionId, { type: 'geometry_updated', payload: geometry });
+      return;
+    }
   } catch (error) {
     send(ws, {
       type: 'error',
@@ -99,6 +109,20 @@ export function ensureWsHub(): WebSocketServer {
     scoped.on('message', (data) => {
       handleMessage(scoped, String(data));
     });
+  });
+  hub.on('error', (error) => {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'EADDRINUSE') {
+      // Avoid crashing dev server when another process already owns the WS port.
+      // Realtime behavior then depends on that external process, which may be stale.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[auvtt] websocket hub port ${WS_PORT} already in use; stop the existing process or run with a different WS_PORT`
+      );
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.error('[auvtt] websocket hub error', error);
   });
 
   hub.on('listening', () => {

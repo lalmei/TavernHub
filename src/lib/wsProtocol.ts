@@ -59,7 +59,24 @@ const updateScene = z.object({
   })
 });
 
-export const clientMessageSchema = z.discriminatedUnion('type', [joinSession, addToken, updateToken, moveToken, deleteToken, updateScene]);
+const setPortalState = z.object({
+  type: z.literal('set_portal_state'),
+  payload: z.object({
+    sessionId: z.string().min(1),
+    portalId: z.string().min(1),
+    closed: z.boolean()
+  })
+});
+
+export const clientMessageSchema = z.discriminatedUnion('type', [
+  joinSession,
+  addToken,
+  updateToken,
+  moveToken,
+  deleteToken,
+  updateScene,
+  setPortalState
+]);
 
 export type ParsedClientMessage = z.infer<typeof clientMessageSchema>;
 
