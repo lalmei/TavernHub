@@ -1,48 +1,89 @@
 # TavernHub
 
-Astro + React virtual tabletop MVP with:
-- DM private board (`/dm/:sessionId`)
-- Player public board (`/view/:sessionId`)
-- Realtime token + scene sync over WebSockets
-- SQLite persistence
-- Universal VTT (`.dd2vtt` / `.uvtt`) import/export
+TavernHub is a lightweight virtual tabletop built with Astro + React.
 
-## Run
+It gives you:
+- A private DM board: `/dm/:sessionId`
+- A public player view: `/view/:sessionId`
+- Realtime sync for tokens and scene state over WebSockets
+- SQLite persistence in `./data`
+- Universal VTT import/export (`.dd2vtt` / `.uvtt`)
+
+## Quick Start (Local)
+
+Requirements:
+- Node.js 20+
+- npm
+
+Install and run:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open `http://localhost:4321`.
+Open:
+- App: `http://127.0.0.1:5173`
+- WebSocket hub (internal): `ws://127.0.0.1:8787`
 
-For LAN play-testing (other devices on same network):
+LAN testing (same network):
 
 ```bash
 npm run dev:lan
 ```
 
-## Notes
-- WebSocket hub starts on `ws://localhost:8787` by default.
-- Set `WS_PORT` to change backend WS port.
-- Set `PUBLIC_WS_URL` in frontend runtime env if needed.
+Then open `http://<your-machine-ip>:5173` from another device.
 
-## Docker
+## First Session Flow
 
-Build and run with make:
+1. Go to `/` and click **Create Session**.
+2. You will be redirected to your DM board at `/dm/<sessionId>`.
+3. Share `/view/<sessionId>` with players.
+4. Import a `.dd2vtt`/`.uvtt` map from the DM board if needed.
+
+## Useful Commands
+
+```bash
+# local
+npm run dev
+npm run dev:lan
+npm run build
+npm run preview
+npm test
+
+# make shortcuts
+make dev
+make dev-lan
+make build
+make test
+```
+
+## Configuration
+
+Environment variables:
+- `WS_PORT` (default: `8787`): WebSocket server port.
+- `PUBLIC_WS_URL` (optional): frontend WebSocket URL override.
+- `HOST` and `PORT`: app bind host/port (used in Docker/production).
+
+## Run with Docker
+
+Build and start:
 
 ```bash
 make docker-build
 make docker-up
 ```
 
-Then open `http://localhost:4321`.
+Open:
+- App: `http://localhost:4321`
+- WebSocket: `ws://localhost:8787`
 
-Useful commands:
+Common Docker commands:
 
 ```bash
 make docker-logs
+make docker-ps
 make docker-down
 ```
 
-Data persists in `./data` via a bind mount.
+Data is persisted by bind mount at `./data`.
