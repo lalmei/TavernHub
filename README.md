@@ -1,6 +1,7 @@
 # TavernHub
 
 TavernHub is a lightweight virtual tabletop built with Astro + React.
+<img width="802" height="636" alt="image" src="https://github.com/user-attachments/assets/f58cfa97-967d-44b5-93e7-31307157e5ef" />
 
 It gives you:
 - A private DM board: `/dm/:sessionId`
@@ -35,6 +36,7 @@ npm run dev:lan
 Then open `http://<your-machine-ip>:5173` from another device.
 
 ## First Session Flow
+
 
 1. Go to `/` and click **Create Session**.
 2. You will be redirected to your DM board at `/dm/<sessionId>`.
