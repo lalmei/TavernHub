@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 
 export function SessionLauncher() {
   const [name, setName] = useState('Friday One Shot');
@@ -33,31 +36,60 @@ export function SessionLauncher() {
   }
 
   return (
-    <section className="panel" style={{ padding: 24, maxWidth: 780, margin: '0 auto' }}>
-      <h1 style={{ marginTop: 0 }}>AuVTT</h1>
-      <p>Private DM board + public player view with realtime token vision.</p>
+    <section className="ui-grid" style={{ gap: 16 }}>
+      <header className="hero">
+        <h1>AuVTT</h1>
+        <p>Private DM board + public player view with realtime token vision.</p>
+      </header>
 
-      <div style={{ display: 'grid', gap: 12, marginTop: 20 }}>
-        <label>
-          Session name
-          <input value={name} onChange={(e) => setName(e.target.value)} style={{ marginLeft: 12, width: 280 }} />
-        </label>
-        <button disabled={busy} onClick={createSession}>
-          {busy ? 'Creating…' : 'Create Session'}
-        </button>
+      <div className="launcher-grid">
+        <Card>
+          <CardHeader>
+            <CardTitle>Create Session</CardTitle>
+            <CardDescription>Start a new DM board and share a player view link.</CardDescription>
+          </CardHeader>
+          <CardContent className="ui-grid">
+            <label className="ui-label" htmlFor="session-name">
+              Session name
+              <Input id="session-name" value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <Button disabled={busy} onClick={createSession}>
+              {busy ? 'Creating...' : 'Create Session'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Join Existing Session</CardTitle>
+            <CardDescription>Open a DM board by session id.</CardDescription>
+          </CardHeader>
+          <CardContent className="ui-grid">
+            <label className="ui-label" htmlFor="join-id">
+              Session ID
+              <Input
+                id="join-id"
+                value={joinId}
+                onChange={(e) => setJoinId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') joinSession();
+                }}
+              />
+            </label>
+            <Button variant="outline" onClick={joinSession}>
+              Open DM Board
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
-      <hr style={{ borderColor: '#e7dece', margin: '24px 0' }} />
-
-      <div style={{ display: 'grid', gap: 12 }}>
-        <label>
-          Existing Session ID
-          <input value={joinId} onChange={(e) => setJoinId(e.target.value)} style={{ marginLeft: 12, width: 280 }} />
-        </label>
-        <button onClick={joinSession}>Open DM Board</button>
-      </div>
-
-      {error && <p style={{ color: '#a12121' }}>{error}</p>}
+      {error && (
+        <Card>
+          <CardContent>
+            <p className="error-text">{error}</p>
+          </CardContent>
+        </Card>
+      )}
     </section>
   );
 }
