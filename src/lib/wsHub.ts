@@ -9,6 +9,7 @@ type SocketWithSession = WebSocket & { sessionId?: string };
 
 let hub: WebSocketServer | null = null;
 const globalKey = '__auvtt_ws_hub__';
+let shutdownHooksInstalled = false;
 
 function send(ws: WebSocket, event: WsServerEvent): void {
   ws.send(JSON.stringify(event));
@@ -130,6 +131,32 @@ export function ensureWsHub(): WebSocketServer {
     console.log(`[auvtt] websocket hub listening on :${WS_PORT}`);
   });
 
+  if (!shutdownHooksInstalled) {
+    const closeHub = () => {
+      const current = (globalThis as Record<string, WebSocketServer | undefined>)[globalKey];
+      if (!current) return;
+      for (const client of current.clients) {
+        try {
+          client.close(1001, 'Server shutting down');
+        } catch {
+          // no-op
+        }
+      }
+      try {
+        current.close();
+      } catch {
+        // no-op
+      }
+      delete (globalThis as Record<string, WebSocketServer | undefined>)[globalKey];
+      hub = null;
+    };
+
+    process.once('SIGINT', closeHub);
+    process.once('SIGTERM', closeHub);
+    process.once('exit', closeHub);
+    shutdownHooksInstalled = true;
+  }
+
   (globalThis as Record<string, WebSocketServer | undefined>)[globalKey] = hub;
   return hub;
 }
@@ -138,4 +165,8 @@ export function publishSnapshot(sessionId: string): void {
   const snapshot = getSnapshot(sessionId);
   if (!snapshot) return;
   broadcast(sessionId, { type: 'session_snapshot', payload: snapshot });
+}
+
+export function publishTokenUpdated(sessionId: string, token: TokenRecord): void {
+  broadcast(sessionId, { type: 'token_updated', payload: token });
 }

@@ -33,7 +33,8 @@ describe('vtt schema validation', () => {
                 radius: 180,
                 shape: 'circle'
               },
-              visible: true
+              visible: true,
+              imageUrl: '/uploads/rogue.png'
             }
           ]
         }

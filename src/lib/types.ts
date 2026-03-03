@@ -16,6 +16,7 @@ export interface TokenRecord {
   role: TokenRole;
   vision: VisionSettings;
   visible: boolean;
+  imageUrl: string | null;
 }
 
 export interface MapRecord {
@@ -104,6 +105,7 @@ export interface UniversalVttFile {
         role: TokenRole;
         vision: VisionSettings;
         visible: boolean;
+        imageUrl?: string | null;
       }>;
     };
   };

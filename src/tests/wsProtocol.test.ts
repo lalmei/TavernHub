@@ -31,4 +31,25 @@ describe('ws protocol parser', () => {
     expect(payload.payload.portalId).toBe('portal_1');
     expect(payload.payload.closed).toBe(true);
   });
+
+  it('parses add_token messages with imageUrl', () => {
+    const payload = parseClientMessage({
+      type: 'add_token',
+      payload: {
+        id: 't1',
+        sessionId: 's1',
+        name: 'Scout',
+        x: 10,
+        y: 20,
+        size: 32,
+        role: 'player',
+        vision: { enabled: true, radius: 120, shape: 'circle' },
+        visible: true,
+        imageUrl: null
+      }
+    });
+
+    expect(payload.type).toBe('add_token');
+    expect(payload.payload.imageUrl).toBeNull();
+  });
 });

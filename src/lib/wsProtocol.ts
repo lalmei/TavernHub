@@ -23,7 +23,8 @@ const addToken = z.object({
       radius: z.number().min(0),
       shape: z.literal('circle')
     }),
-    visible: z.boolean()
+    visible: z.boolean(),
+    imageUrl: z.string().min(1).nullable()
   })
 });
 

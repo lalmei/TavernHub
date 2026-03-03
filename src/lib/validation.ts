@@ -17,7 +17,8 @@ export const tokenSchema = z.object({
   size: z.number().positive(),
   role: tokenRoleSchema,
   vision: visionSchema,
-  visible: z.boolean()
+  visible: z.boolean(),
+  imageUrl: z.string().min(1).nullable()
 });
 
 export const createSessionSchema = z.object({
@@ -99,7 +100,8 @@ export const universalVttSchema = z.object({
                 size: z.number().positive(),
                 role: tokenRoleSchema,
                 vision: visionSchema,
-                visible: z.boolean()
+                visible: z.boolean(),
+                imageUrl: z.string().min(1).nullable().optional()
               })
             )
             .optional()

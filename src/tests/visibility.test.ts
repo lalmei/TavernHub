@@ -24,7 +24,8 @@ describe('visibility helpers', () => {
         size: 32,
         role: 'player',
         vision: { enabled: true, radius: 100, shape: 'circle' },
-        visible: true
+        visible: true,
+        imageUrl: null
       },
       {
         id: '2',
@@ -35,7 +36,8 @@ describe('visibility helpers', () => {
         size: 32,
         role: 'npc',
         vision: { enabled: true, radius: 100, shape: 'circle' },
-        visible: true
+        visible: true,
+        imageUrl: null
       }
     ];
 

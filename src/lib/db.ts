@@ -92,6 +92,7 @@ function migrate(): void {
       role TEXT NOT NULL,
       vision_enabled INTEGER NOT NULL,
       vision_radius REAL NOT NULL,
+      image_url TEXT,
       visible INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
@@ -113,6 +114,12 @@ function migrate(): void {
 
     CREATE INDEX IF NOT EXISTS idx_tokens_session_id ON tokens(session_id);
   `);
+
+  const tokenColumns = db.prepare("PRAGMA table_info('tokens')").all() as Array<{ name: string }>;
+  const hasImageUrl = tokenColumns.some((column) => column.name === 'image_url');
+  if (!hasImageUrl) {
+    db.exec('ALTER TABLE tokens ADD COLUMN image_url TEXT');
+  }
 }
 
 migrate();
@@ -140,7 +147,8 @@ function mapRowToToken(row: any): TokenRecord {
       radius: row.vision_radius,
       shape: 'circle'
     },
-    visible: Boolean(row.visible)
+    visible: Boolean(row.visible),
+    imageUrl: row.image_url ?? null
   };
 }
 
@@ -290,8 +298,8 @@ export function setPortalState(sessionId: string, portalId: string, closed: bool
 
 export function addToken(token: TokenRecord): TokenRecord {
   db.prepare(
-    `INSERT INTO tokens (id, session_id, name, x, y, size, role, vision_enabled, vision_radius, visible)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO tokens (id, session_id, name, x, y, size, role, vision_enabled, vision_radius, image_url, visible)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     token.id,
     token.sessionId,
@@ -302,6 +310,7 @@ export function addToken(token: TokenRecord): TokenRecord {
     token.role,
     token.vision.enabled ? 1 : 0,
     token.vision.radius,
+    token.imageUrl,
     token.visible ? 1 : 0
   );
   updateSessionTimestamp(token.sessionId);
@@ -311,7 +320,7 @@ export function addToken(token: TokenRecord): TokenRecord {
 export function updateToken(token: TokenRecord): TokenRecord {
   db.prepare(
     `UPDATE tokens SET
-      name = ?, x = ?, y = ?, size = ?, role = ?, vision_enabled = ?, vision_radius = ?, visible = ?
+      name = ?, x = ?, y = ?, size = ?, role = ?, vision_enabled = ?, vision_radius = ?, image_url = ?, visible = ?
      WHERE id = ? AND session_id = ?`
   ).run(
     token.name,
@@ -321,6 +330,7 @@ export function updateToken(token: TokenRecord): TokenRecord {
     token.role,
     token.vision.enabled ? 1 : 0,
     token.vision.radius,
+    token.imageUrl,
     token.visible ? 1 : 0,
     token.id,
     token.sessionId
@@ -342,6 +352,17 @@ export function deleteToken(sessionId: string, id: string): void {
 export function getTokens(sessionId: string): TokenRecord[] {
   const rows = db.prepare('SELECT * FROM tokens WHERE session_id = ?').all(sessionId);
   return rows.map(mapRowToToken);
+}
+
+export function getToken(sessionId: string, tokenId: string): TokenRecord | null {
+  const row = db.prepare('SELECT * FROM tokens WHERE session_id = ? AND id = ?').get(sessionId, tokenId);
+  return row ? mapRowToToken(row) : null;
+}
+
+export function setTokenImage(sessionId: string, tokenId: string, imageUrl: string | null): TokenRecord | null {
+  db.prepare('UPDATE tokens SET image_url = ? WHERE session_id = ? AND id = ?').run(imageUrl, sessionId, tokenId);
+  updateSessionTimestamp(sessionId);
+  return getToken(sessionId, tokenId);
 }
 
 export function getSnapshot(sessionId: string): SessionSnapshot | null {
@@ -409,7 +430,8 @@ export function importUniversalVtt(sessionId: string, file: UniversalVttFile): S
         size: t.size,
         role: t.role,
         vision: t.vision,
-        visible: t.visible
+        visible: t.visible,
+        imageUrl: t.imageUrl ?? null
       });
     }
   });
@@ -461,7 +483,8 @@ export function exportUniversalVtt(sessionId: string): UniversalVttFile | null {
           size: token.size,
           role: token.role,
           vision: token.vision,
-          visible: token.visible
+          visible: token.visible,
+          imageUrl: token.imageUrl ?? null
         }))
       }
     }
