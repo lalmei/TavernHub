@@ -1,10 +1,10 @@
 services:
-  auvtt:
+  tavernhub:
     build:
       context: .
       dockerfile: Dockerfile
-    image: auvtt:local
-    container_name: auvtt
+    image: tavernhub:local
+    container_name: tavernhub
     restart: unless-stopped
     ports:
       - "4321:4321"

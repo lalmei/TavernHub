@@ -38,7 +38,7 @@ export function SessionLauncher() {
   return (
     <section className="ui-grid" style={{ gap: 16 }}>
       <header className="hero">
-        <h1>AuVTT</h1>
+        <h1>TavernHub</h1>
         <p>Private DM board + public player view with realtime token vision.</p>
       </header>
 

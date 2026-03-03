@@ -1,4 +1,4 @@
-# AuVTT
+# TavernHub
 
 Astro + React virtual tabletop MVP with:
 - DM private board (`/dm/:sessionId`)

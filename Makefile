@@ -1,6 +1,6 @@
 COMPOSE := docker compose
-SERVICE := auvtt
-IMAGE := auvtt:local
+SERVICE := tavernhub
+IMAGE := tavernhub:local
 
 .PHONY: help dev dev-lan preview preview-lan test build docker-build docker-up docker-down docker-restart docker-logs docker-ps docker-shell docker-test docker-prune
 
@@ -13,7 +13,7 @@ help:
 	@echo "  make test           Run test suite locally"
 	@echo "  make build          Build app locally"
 	@echo "  make docker-build   Build the Docker image"
-	@echo "  make docker-up      Start AuVTT in Docker (detached)"
+	@echo "  make docker-up      Start TavernHub in Docker (detached)"
 	@echo "  make docker-down    Stop and remove container"
 	@echo "  make docker-restart Restart service"
 	@echo "  make docker-logs    Tail container logs"
