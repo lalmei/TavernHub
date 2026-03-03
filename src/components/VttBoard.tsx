@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 import type { Point, PortalRecord, SceneSettings, SessionSnapshot, TokenRecord, TokenRole, WsServerEvent } from '@/lib/types';
 import {
   hitTestPortal,
@@ -31,6 +39,17 @@ function id(): string {
   return `t_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function roleColor(role: TokenRole): string {
+  if (role === 'player') return '#22c1a1';
+  if (role === 'npc') return '#fb6f52';
+  return '#6f7ef2';
+}
+
+function roleLabel(role: TokenRole): string {
+  if (role === 'dm_marker') return 'DM Marker';
+  return role.toUpperCase();
+}
+
 export function VttBoard({ sessionId, mode }: Props) {
   const isDm = mode === 'dm';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -40,14 +59,20 @@ export function VttBoard({ sessionId, mode }: Props) {
   const dragStartRef = useRef<Point | null>(null);
   const didDragRef = useRef(false);
   const visibilityCacheRef = useRef<Map<string, Point[]>>(new Map());
+  const tokenImageCacheRef = useRef<Map<string, HTMLImageElement | null>>(new Map());
 
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('connecting');
-  const [uvttImageFile, setUvttImageFile] = useState<File | null>(null);
   const [showDoorOverlays, setShowDoorOverlays] = useState(true);
   const [hoveredPortalId, setHoveredPortalId] = useState<string | null>(null);
+
+  const [mapFile, setMapFile] = useState<File | null>(null);
+  const [mapWidth, setMapWidth] = useState(String(canvasW));
+  const [mapHeight, setMapHeight] = useState(String(canvasH));
+  const [mapGridSize, setMapGridSize] = useState('');
+  const [uvttFile, setUvttFile] = useState<File | null>(null);
 
   const selectedToken = useMemo(
     () => snapshot?.tokens.find((token) => token.id === selectedId) ?? null,
@@ -184,6 +209,32 @@ export function VttBoard({ sessionId, mode }: Props) {
     };
   }, [snapshot?.map?.imageUrl]);
 
+  useEffect(() => {
+    if (!snapshot) return;
+    setMapWidth(String(snapshot.map?.width ?? canvasW));
+    setMapHeight(String(snapshot.map?.height ?? canvasH));
+    setMapGridSize(snapshot.map?.gridSize ? String(snapshot.map.gridSize) : '');
+  }, [snapshot?.map?.width, snapshot?.map?.height, snapshot?.map?.gridSize, snapshot]);
+
+  function ensureTokenImage(url: string): HTMLImageElement | null {
+    const cached = tokenImageCacheRef.current.get(url);
+    if (cached !== undefined) return cached;
+
+    tokenImageCacheRef.current.set(url, null);
+    const img = new Image();
+    img.src = url;
+    img.onload = () => {
+      tokenImageCacheRef.current.set(url, img);
+      draw();
+    };
+    img.onerror = () => {
+      tokenImageCacheRef.current.set(url, null);
+      draw();
+    };
+
+    return null;
+  }
+
   function send(payload: unknown) {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -205,7 +256,8 @@ export function VttBoard({ sessionId, mode }: Props) {
         radius: 150,
         shape: 'circle'
       },
-      visible: true
+      visible: true,
+      imageUrl: null
     };
     send({ type: 'add_token', payload: token });
   }
@@ -356,9 +408,9 @@ export function VttBoard({ sessionId, mode }: Props) {
           if (img) {
             ctx.drawImage(img, 0, 0, mapW, mapH);
           } else {
-            ctx.fillStyle = '#e9dfcf';
+            ctx.fillStyle = '#171717';
             ctx.fillRect(0, 0, mapW, mapH);
-            ctx.fillStyle = '#6e5b44';
+            ctx.fillStyle = '#adadad';
             ctx.fillText('Upload a map to begin', 20, 30);
           }
           ctx.restore();
@@ -367,9 +419,9 @@ export function VttBoard({ sessionId, mode }: Props) {
     } else if (img) {
       ctx.drawImage(img, 0, 0, mapW, mapH);
     } else {
-      ctx.fillStyle = '#e9dfcf';
+      ctx.fillStyle = '#171717';
       ctx.fillRect(0, 0, mapW, mapH);
-      ctx.fillStyle = '#6e5b44';
+      ctx.fillStyle = '#adadad';
       ctx.fillText('Upload a map to begin', 20, 30);
     }
 
@@ -381,24 +433,50 @@ export function VttBoard({ sessionId, mode }: Props) {
         if (!visibleByLos) continue;
       }
 
+      ctx.save();
       ctx.beginPath();
       ctx.arc(token.x, token.y, token.size / 2, 0, Math.PI * 2);
-      ctx.fillStyle = token.role === 'player' ? '#287f77' : token.role === 'npc' ? '#a84b36' : '#5e4f87';
-      ctx.fill();
+      ctx.closePath();
+      ctx.clip();
+
+      const portrait = token.imageUrl ? ensureTokenImage(token.imageUrl) : null;
+      if (portrait) {
+        const size = token.size;
+        const src = Math.min(portrait.naturalWidth, portrait.naturalHeight);
+        const sx = (portrait.naturalWidth - src) / 2;
+        const sy = (portrait.naturalHeight - src) / 2;
+        ctx.drawImage(portrait, sx, sy, src, src, token.x - size / 2, token.y - size / 2, size, size);
+      } else {
+        ctx.fillStyle = roleColor(token.role);
+        ctx.fill();
+      }
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(token.x, token.y, token.size / 2 - 1, 0, Math.PI * 2);
+      ctx.strokeStyle = roleColor(token.role);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(token.x, token.y, token.size / 2 + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(5,5,5,0.95)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
       if (isDm && token.vision.enabled) {
         ctx.beginPath();
         ctx.arc(token.x, token.y, token.vision.radius, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(40,127,119,0.35)';
+        ctx.strokeStyle = 'rgba(245,245,245,0.32)';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
 
       if (token.id === selectedId) {
         ctx.beginPath();
-        ctx.arc(token.x, token.y, token.size / 2 + 4, 0, Math.PI * 2);
-        ctx.strokeStyle = '#f7f7f7';
-        ctx.lineWidth = 2;
+        ctx.arc(token.x, token.y, token.size / 2 + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
         ctx.stroke();
       }
     }
@@ -409,8 +487,8 @@ export function VttBoard({ sessionId, mode }: Props) {
         ctx.beginPath();
         ctx.moveTo(portal.a.x, portal.a.y);
         ctx.lineTo(portal.b.x, portal.b.y);
-        ctx.lineWidth = portal.id === hoveredPortalId ? 5 : 3;
-        ctx.strokeStyle = portal.closed ? '#da5d2a' : '#2a9d6c';
+        ctx.lineWidth = portal.id === hoveredPortalId ? 6 : 4;
+        ctx.strokeStyle = portal.id === hoveredPortalId ? '#ffffff' : portal.closed ? '#da5d2a' : '#2a9d6c';
         if (!portal.closed) {
           ctx.setLineDash([8, 6]);
         }
@@ -441,7 +519,6 @@ export function VttBoard({ sessionId, mode }: Props) {
     }
     const payload = await response.json();
     setSnapshot((current) => (current ? { ...current, map: payload.map } : current));
-    return payload.map as { imageUrl: string; width: number; height: number; gridSize: number | null };
   }
 
   async function importUvtt(file: File) {
@@ -453,14 +530,6 @@ export function VttBoard({ sessionId, mode }: Props) {
         pixels_per_grid?: number;
       };
     };
-
-    if (uvttImageFile) {
-      const width = Math.round(raw.resolution?.map_size?.x ?? snapshot?.map?.width ?? canvasW);
-      const height = Math.round(raw.resolution?.map_size?.y ?? snapshot?.map?.height ?? canvasH);
-      const grid = Math.round(raw.resolution?.pixels_per_grid ?? snapshot?.map?.gridSize ?? 70);
-      const uploaded = await uploadMap(uvttImageFile, width, height, Number.isFinite(grid) ? grid : null);
-      raw.image = uploaded.imageUrl;
-    }
 
     const response = await fetch(`/api/sessions/${sessionId}/import`, {
       method: 'POST',
@@ -483,7 +552,7 @@ export function VttBoard({ sessionId, mode }: Props) {
         !imageRef.startsWith('data:image/')
     );
     if (looksRelative) {
-      setError('UVTT imported. This file references a separate map image; choose it in \"Companion UVTT image\" and re-import.');
+      setError('UVTT imported. This file references a separate map image; use Upload Map to attach it.');
     }
   }
 
@@ -508,183 +577,448 @@ export function VttBoard({ sessionId, mode }: Props) {
     navigator.clipboard.writeText(url).catch(() => undefined);
   }
 
+  async function uploadSelectedTokenImage(file: File) {
+    if (!selectedToken) return;
+    const data = new FormData();
+    data.append('image', file);
+
+    const response = await fetch(`/api/sessions/${sessionId}/tokens/${selectedToken.id}/image`, {
+      method: 'POST',
+      body: data
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error ?? 'Image upload failed');
+    }
+    const token = payload.token as TokenRecord;
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            tokens: current.tokens.map((entry) => (entry.id === token.id ? token : entry))
+          }
+        : current
+    );
+  }
+
+  async function removeSelectedTokenImage() {
+    if (!selectedToken) return;
+    const response = await fetch(`/api/sessions/${sessionId}/tokens/${selectedToken.id}/image`, {
+      method: 'DELETE'
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error ?? 'Failed to remove image');
+    }
+    const token = payload.token as TokenRecord;
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            tokens: current.tokens.map((entry) => (entry.id === token.id ? token : entry))
+          }
+        : current
+    );
+  }
+
+  const viewerVisibleTokenIds = useMemo(() => {
+    if (!snapshot || isDm) return new Set<string>();
+    const mapW = snapshot.map?.width ?? canvasW;
+    const mapH = snapshot.map?.height ?? canvasH;
+    const circles = playerVisionCircles(snapshot.tokens);
+    const polygons = circles.map((circle) =>
+      visibilityPolygonForToken({ x: circle.x, y: circle.y }, circle.radius, blockingSegments, mapW, mapH)
+    );
+
+    const visible = new Set<string>();
+    for (const token of snapshot.tokens) {
+      if (!token.visible) continue;
+      if (token.role === 'dm_marker') continue;
+      if (token.role === 'npc' && polygons.length > 0) {
+        const visibleByLos = polygons.some((poly) => pointInPolygon({ x: token.x, y: token.y }, poly));
+        if (!visibleByLos) continue;
+      }
+      if (token.role === 'npc' && polygons.length === 0) continue;
+      visible.add(token.id);
+    }
+    return visible;
+  }, [snapshot, isDm, blockingSegments]);
+
+  const rosterTokens = useMemo(() => {
+    if (!snapshot) return [] as TokenRecord[];
+    if (isDm) return snapshot.tokens;
+    return snapshot.tokens.filter((token) => viewerVisibleTokenIds.has(token.id));
+  }, [snapshot, isDm, viewerVisibleTokenIds]);
+
   if (!snapshot) {
-    return <p>Loading board…</p>;
+    return <p>Loading board...</p>;
   }
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
-      <div className="panel" style={{ padding: 12 }}>
-        <strong>{snapshot.session.name}</strong> · Session `{snapshot.session.id}` · WS: {status}
-      </div>
+    <div className="ui-grid" style={{ gap: 14 }}>
+      <Card>
+        <CardContent>
+          <div className="row-inline">
+            <div>
+              <strong>{snapshot.session.name}</strong>
+              <p className="token-sub">Session `{snapshot.session.id}`</p>
+            </div>
+            <Badge>WS: {status}</Badge>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div style={{ display: 'grid', gap: 14, gridTemplateColumns: isDm ? '1fr 300px' : '1fr' }}>
-        <section className="panel" style={{ padding: 12, overflow: 'auto' }}>
+      <div className={`board-layout ${isDm ? 'board-layout--dm' : 'board-layout--viewer'}`}>
+        {!isDm && (
+          <aside className="sidebar">
+            <Card>
+              <CardHeader>
+                <CardTitle>Tokens in Scene</CardTitle>
+                <CardDescription>Visible token roster</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea>
+                  <div className="ui-grid">
+                    {rosterTokens.map((token) => (
+                      <button
+                        key={token.id}
+                        className={`token-row ${selectedId === token.id ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedId(token.id)}
+                      >
+                        {token.imageUrl ? (
+                          <img src={token.imageUrl} alt={`${token.name} portrait`} className="token-thumb" />
+                        ) : (
+                          <span className="token-thumb token-fallback">{token.name.slice(0, 2).toUpperCase()}</span>
+                        )}
+                        <span className="token-meta">
+                          <span className="token-name">{token.name}</span>
+                          <span className="token-sub">{roleLabel(token.role)}</span>
+                        </span>
+                        <Badge>{token.visible ? 'shown' : 'hidden'}</Badge>
+                      </button>
+                    ))}
+                    {rosterTokens.length === 0 && <p className="token-sub">No visible tokens yet.</p>}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </aside>
+        )}
+
+        <section className="ui-card canvas-wrap">
           <canvas
             ref={canvasRef}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseLeave}
-            style={{ width: '100%', maxWidth: 1000, display: 'block', borderRadius: 8 }}
+            className="vtt-canvas"
           />
         </section>
 
         {isDm && (
-          <aside className="panel" style={{ padding: 12, display: 'grid', gap: 10, alignContent: 'start' }}>
-            <strong>DM Controls</strong>
-            <button onClick={() => addToken('player')}>Add Player Token</button>
-            <button onClick={() => addToken('npc')}>Add NPC Token</button>
-            <button onClick={() => addToken('dm_marker')}>Add DM Marker</button>
-            <button onClick={copyPlayerUrl}>Copy Player URL</button>
-            <a href={`/api/sessions/${sessionId}/export`} target="_blank" rel="noreferrer">
-              Export .dd2vtt
-            </a>
+          <aside className="sidebar">
+            <Card>
+              <CardHeader>
+                <CardTitle>DM Controls</CardTitle>
+                <CardDescription>Scene actions and export tools</CardDescription>
+              </CardHeader>
+              <CardContent className="ui-grid">
+                <Button onClick={() => addToken('player')}>Add Player Token</Button>
+                <Button onClick={() => addToken('npc')} variant="outline">
+                  Add NPC Token
+                </Button>
+                <Button onClick={() => addToken('dm_marker')} variant="outline">
+                  Add DM Marker
+                </Button>
+                <Button onClick={copyPlayerUrl} variant="ghost">
+                  Copy Player URL
+                </Button>
+                <a href={`/api/sessions/${sessionId}/export`} target="_blank" rel="noreferrer">
+                  Export .dd2vtt
+                </a>
 
-            <label>
-              Upload Map
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    const width = Number(prompt('Map width in px', String(snapshot.map?.width ?? canvasW)) ?? canvasW);
-                    const height = Number(prompt('Map height in px', String(snapshot.map?.height ?? canvasH)) ?? canvasH);
-                    const gridValue = prompt('Grid size (optional)', snapshot.map?.gridSize?.toString() ?? '');
-                    const gridSize = gridValue ? Number(gridValue) : null;
-                    await uploadMap(file, width, height, gridSize);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Map upload failed');
-                  }
-                }}
-              />
-            </label>
+                <Separator />
 
-            <label>
-              Companion UVTT image (optional)
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(e) => {
-                  setUvttImageFile(e.target.files?.[0] ?? null);
-                }}
-              />
-            </label>
+                <label className="ui-label" htmlFor="map-upload">
+                  Upload map image
+                  <Input
+                    id="map-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => setMapFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <div className="ui-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <label className="ui-label" htmlFor="map-width">
+                    Width (px)
+                    <Input id="map-width" type="number" min={1} value={mapWidth} onChange={(e) => setMapWidth(e.target.value)} />
+                  </label>
+                  <label className="ui-label" htmlFor="map-height">
+                    Height (px)
+                    <Input
+                      id="map-height"
+                      type="number"
+                      min={1}
+                      value={mapHeight}
+                      onChange={(e) => setMapHeight(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <label className="ui-label" htmlFor="map-grid-size">
+                  Grid size (optional)
+                  <Input
+                    id="map-grid-size"
+                    type="number"
+                    min={1}
+                    value={mapGridSize}
+                    onChange={(e) => setMapGridSize(e.target.value)}
+                  />
+                </label>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (!mapFile) {
+                      setError('Select a map image first.');
+                      return;
+                    }
+                    try {
+                      await uploadMap(
+                        mapFile,
+                        Number(mapWidth || canvasW),
+                        Number(mapHeight || canvasH),
+                        mapGridSize ? Number(mapGridSize) : null
+                      );
+                      setMapFile(null);
+                      setError(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Map upload failed');
+                    }
+                  }}
+                >
+                  Upload Map
+                </Button>
 
-            <label>
-              Import .dd2vtt / .uvtt
-              <input
-                type="file"
-                accept="application/json,.json,.uvtt,.dd2vtt"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    await importUvtt(file);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Import failed');
-                  }
-                }}
-              />
-            </label>
+                <label className="ui-label" htmlFor="uvtt-upload">
+                  Import .dd2vtt / .uvtt
+                  <Input
+                    id="uvtt-upload"
+                    type="file"
+                    accept="application/json,.json,.uvtt,.dd2vtt"
+                    onChange={(e) => setUvttFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    if (!uvttFile) {
+                      setError('Select a .uvtt/.dd2vtt file first.');
+                      return;
+                    }
+                    try {
+                      await importUvtt(uvttFile);
+                      setUvttFile(null);
+                      setError(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Import failed');
+                    }
+                  }}
+                >
+                  Import VTT
+                </Button>
 
-            <label>
-              <input
-                type="checkbox"
-                checked={snapshot.scene.fogEnabled}
-                onChange={(e) => updateScene({ ...snapshot.scene, fogEnabled: e.target.checked })}
-              />{' '}
-              Fog enabled
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={snapshot.scene.globalLight}
-                onChange={(e) => updateScene({ ...snapshot.scene, globalLight: e.target.checked })}
-              />{' '}
-              Global light
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={showDoorOverlays}
-                onChange={(e) => setShowDoorOverlays(e.target.checked)}
-              />{' '}
-              Show door overlays
-            </label>
-            <div>Doors: {doorCounts.closed} closed / {doorCounts.open} open</div>
+                <Separator />
+
+                <label className="ui-check-row">
+                  <Checkbox
+                    checked={snapshot.scene.fogEnabled}
+                    onChange={(e) => updateScene({ ...snapshot.scene, fogEnabled: e.target.checked })}
+                  />
+                  Fog enabled
+                </label>
+                <label className="ui-check-row">
+                  <Checkbox
+                    checked={snapshot.scene.globalLight}
+                    onChange={(e) => updateScene({ ...snapshot.scene, globalLight: e.target.checked })}
+                  />
+                  Global light
+                </label>
+                <label className="ui-check-row">
+                  <Checkbox checked={showDoorOverlays} onChange={(e) => setShowDoorOverlays(e.target.checked)} />
+                  Show door overlays
+                </label>
+                <p className="token-sub">Doors: {doorCounts.closed} closed / {doorCounts.open} open</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Tokens in Scene</CardTitle>
+                <CardDescription>Click row to select token</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea>
+                  <div className="ui-grid">
+                    {rosterTokens.map((token) => (
+                      <button
+                        key={token.id}
+                        className={`token-row ${selectedId === token.id ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedId(token.id)}
+                      >
+                        {token.imageUrl ? (
+                          <img src={token.imageUrl} alt={`${token.name} portrait`} className="token-thumb" />
+                        ) : (
+                          <span className="token-thumb token-fallback">{token.name.slice(0, 2).toUpperCase()}</span>
+                        )}
+                        <span className="token-meta">
+                          <span className="token-name">{token.name}</span>
+                          <span className="token-sub">
+                            {roleLabel(token.role)} · {Math.round(token.x)}, {Math.round(token.y)}
+                          </span>
+                        </span>
+                        <Badge>{token.visible ? 'shown' : 'hidden'}</Badge>
+                      </button>
+                    ))}
+                    {rosterTokens.length === 0 && <p className="token-sub">No tokens yet.</p>}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
 
             {selectedToken && (
-              <div style={{ borderTop: '1px solid #e4dccb', paddingTop: 8, display: 'grid', gap: 8 }}>
-                <strong>Token</strong>
-                <input
-                  value={selectedToken.name}
-                  onChange={(e) => updateToken({ ...selectedToken, name: e.target.value })}
-                />
-                <select
-                  value={selectedToken.role}
-                  onChange={(e) => updateToken({ ...selectedToken, role: e.target.value as TokenRole })}
-                >
-                  <option value="player">Player</option>
-                  <option value="npc">NPC</option>
-                  <option value="dm_marker">DM Marker</option>
-                </select>
-                <label>
-                  Size
-                  <input
-                    type="number"
-                    min={8}
-                    value={selectedToken.size}
-                    onChange={(e) => updateToken({ ...selectedToken, size: Number(e.target.value) })}
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedToken.vision.enabled}
-                    onChange={(e) =>
-                      updateToken({
-                        ...selectedToken,
-                        vision: { ...selectedToken.vision, enabled: e.target.checked }
-                      })
-                    }
-                  />{' '}
-                  Vision enabled
-                </label>
-                <label>
-                  Vision radius
-                  <input
-                    type="number"
-                    min={0}
-                    value={selectedToken.vision.radius}
-                    onChange={(e) =>
-                      updateToken({
-                        ...selectedToken,
-                        vision: { ...selectedToken.vision, radius: Number(e.target.value) }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={selectedToken.visible}
-                    onChange={(e) => updateToken({ ...selectedToken, visible: e.target.checked })}
-                  />{' '}
-                  Visible
-                </label>
-                <button onClick={() => send({ type: 'delete_token', payload: { sessionId, id: selectedToken.id } })}>
-                  Delete Token
-                </button>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Selected Token</CardTitle>
+                </CardHeader>
+                <CardContent className="ui-grid">
+                  <label className="ui-label" htmlFor="token-name">
+                    Name
+                    <Input
+                      id="token-name"
+                      value={selectedToken.name}
+                      onChange={(e) => updateToken({ ...selectedToken, name: e.target.value })}
+                    />
+                  </label>
+                  <label className="ui-label" htmlFor="token-role">
+                    Role
+                    <Select
+                      id="token-role"
+                      value={selectedToken.role}
+                      onChange={(e) => updateToken({ ...selectedToken, role: e.target.value as TokenRole })}
+                    >
+                      <option value="player">Player</option>
+                      <option value="npc">NPC</option>
+                      <option value="dm_marker">DM Marker</option>
+                    </Select>
+                  </label>
+                  <label className="ui-label" htmlFor="token-size">
+                    Size
+                    <Input
+                      id="token-size"
+                      type="number"
+                      min={8}
+                      value={selectedToken.size}
+                      onChange={(e) => updateToken({ ...selectedToken, size: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label className="ui-check-row">
+                    <Checkbox
+                      checked={selectedToken.vision.enabled}
+                      onChange={(e) =>
+                        updateToken({
+                          ...selectedToken,
+                          vision: { ...selectedToken.vision, enabled: e.target.checked }
+                        })
+                      }
+                    />
+                    Vision enabled
+                  </label>
+                  <label className="ui-label" htmlFor="token-vision-radius">
+                    Vision radius
+                    <Input
+                      id="token-vision-radius"
+                      type="number"
+                      min={0}
+                      value={selectedToken.vision.radius}
+                      onChange={(e) =>
+                        updateToken({
+                          ...selectedToken,
+                          vision: { ...selectedToken.vision, radius: Number(e.target.value) }
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="ui-check-row">
+                    <Checkbox
+                      checked={selectedToken.visible}
+                      onChange={(e) => updateToken({ ...selectedToken, visible: e.target.checked })}
+                    />
+                    Visible
+                  </label>
+
+                  <label className="ui-label" htmlFor="token-image-upload">
+                    Token portrait
+                    <Input
+                      id="token-image-upload"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          await uploadSelectedTokenImage(file);
+                          setError(null);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Image upload failed');
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {selectedToken.imageUrl && (
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        try {
+                          await removeSelectedTokenImage();
+                          setError(null);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Failed to remove image');
+                        }
+                      }}
+                    >
+                      Remove Portrait
+                    </Button>
+                  )}
+
+                  <Button
+                    variant="danger"
+                    onClick={() => send({ type: 'delete_token', payload: { sessionId, id: selectedToken.id } })}
+                  >
+                    Delete Token
+                  </Button>
+                </CardContent>
+              </Card>
             )}
 
-            {error && <p style={{ color: '#a12121' }}>{error}</p>}
+            {error && (
+              <Card>
+                <CardContent>
+                  <p className="error-text">{error}</p>
+                </CardContent>
+              </Card>
+            )}
           </aside>
         )}
       </div>
+
+      {!isDm && error && (
+        <Card>
+          <CardContent>
+            <p className="error-text">{error}</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
