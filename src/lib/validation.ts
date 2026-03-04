@@ -11,7 +11,7 @@ export const visionSchema = z.object({
 export const tokenSchema = z.object({
   id: z.string().min(1),
   sessionId: z.string().min(1),
-  name: z.string().min(1).max(100),
+  name: z.string().max(100),
   x: z.number(),
   y: z.number(),
   size: z.number().positive(),
@@ -94,7 +94,7 @@ export const universalVttSchema = z.object({
             .array(
               z.object({
                 id: z.string().min(1),
-                name: z.string().min(1),
+                name: z.string().max(100),
                 x: z.number(),
                 y: z.number(),
                 size: z.number().positive(),
