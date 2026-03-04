@@ -3,6 +3,7 @@
 TavernHub is a lightweight virtual tabletop built with Astro + React.
 <img width="802" height="636" alt="image" src="https://github.com/user-attachments/assets/f58cfa97-967d-44b5-93e7-31307157e5ef" />
 
+
 It gives you:
 - A private DM board: `/dm/:sessionId`
 - A public player view: `/view/:sessionId`
@@ -10,6 +11,9 @@ It gives you:
 - SQLite persistence in `./data`
 - Universal VTT import/export (`.dd2vtt` / `.uvtt`)
 
+If you use a universal vtt file it will also display line of sight for player map, which available on your local nettwork. 
+
+<img width="2261" height="1304" alt="image" src="https://github.com/user-attachments/assets/7d23d5bd-6cce-4b68-9da6-7b45d0cf871a" />
 ## Quick Start (Local)
 
 Requirements:
