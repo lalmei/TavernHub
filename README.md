@@ -14,6 +14,7 @@ It gives you:
 If you use a universal vtt file it will also display line of sight for player map, which available on your local nettwork. 
 
 <img width="2261" height="1304" alt="image" src="https://github.com/user-attachments/assets/7d23d5bd-6cce-4b68-9da6-7b45d0cf871a" />
+
 ## Quick Start (Local)
 
 Requirements:
