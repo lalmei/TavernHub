@@ -1,6 +1,8 @@
 # TavernHub
 
-TavernHub is a lightweight virtual tabletop built with Astro + React.
+TavernHub is a lightweight virtual tabletop built with Astro + React, mainly to be used in LAN setups. So focus is on simplicity, and not to replace
+face-to-face interaction. 
+
 <img width="802" height="636" alt="image" src="https://github.com/user-attachments/assets/f58cfa97-967d-44b5-93e7-31307157e5ef" />
 
 
