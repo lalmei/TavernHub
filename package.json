@@ -12,9 +12,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@astrojs/node": "^9.1.0",
+    "@astrojs/node": "^10.0.5",
     "@astrojs/react": "^4.4.0",
-    "astro": "^5.1.0",
+    "astro": "^6.1.8",
     "better-sqlite3": "^11.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
